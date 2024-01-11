@@ -26,6 +26,7 @@ import {
   LexicalNode,
   ParagraphNode,
   RangeSelection,
+  RootNode,
   SELECTION_CHANGE_COMMAND,
   TextFormatType,
   TextNode,
@@ -292,7 +293,7 @@ export const setMarkdown$ = Signal<string>((r) => {
     ([theNewMarkdownValue, , editor, inFocus]) => {
       editor?.update(() => {
         $getRoot().clear()
-        tryImportingMarkdown(r, theNewMarkdownValue)
+        tryImportingMarkdown(r, $getRoot(), theNewMarkdownValue)
 
         if (!inFocus) {
           $setSelection(null)
@@ -302,6 +303,33 @@ export const setMarkdown$ = Signal<string>((r) => {
       })
     }
   )
+})
+
+export const insertMarkdown$ = Signal<string>((r) => {
+  r.sub(r.pipe(insertMarkdown$, withLatestFrom(activeEditor$, inFocus$)), ([markdownToInsert, editor, inFocus]) => {
+    editor?.update(() => {
+      const selection = $getSelection()
+      if (selection !== null) {
+        const rootNodes: LexicalNode[] = []
+        const fakeRoot = {
+          append(node: LexicalNode) {
+            rootNodes.push(node)
+          },
+          getType() {
+            return selection?.getNodes()[0].getType()
+          }
+        }
+        tryImportingMarkdown(r, fakeRoot as unknown as RootNode, markdownToInsert)
+        $insertNodes(rootNodes)
+      }
+
+      if (!inFocus) {
+        $setSelection(null)
+      } else {
+        editor.focus()
+      }
+    })
+  })
 })
 
 function rebind() {
@@ -531,13 +559,13 @@ export const createActiveEditorSubscription$ = Appender(activeEditorSubscription
   ])
 })
 
-function tryImportingMarkdown(r: Realm, markdownValue: string) {
+function tryImportingMarkdown(r: Realm, root: RootNode, markdownValue: string) {
   try {
     ////////////////////////
     // Import initial value
     ////////////////////////
     importMarkdownToLexical({
-      root: $getRoot(),
+      root,
       visitors: r.getValue(importVisitors$),
       mdastExtensions: r.getValue(mdastExtensions$),
       markdown: markdownValue,
@@ -566,7 +594,7 @@ export const initialRootEditorState$ = Cell<InitialEditorStateType | null>(null,
     r.pub(rootEditor$, theRootEditor)
     r.pub(activeEditor$, theRootEditor)
 
-    tryImportingMarkdown(r, r.getValue(initialMarkdown$))
+    tryImportingMarkdown(r, $getRoot(), r.getValue(initialMarkdown$))
 
     const autoFocusValue = r.getValue(autoFocus$)
     if (autoFocusValue) {
